@@ -19,9 +19,20 @@ from .config import GRPCClientConfig
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# gRPC authentication headers (from Go SDK)
-HEADER_CALLER_ID = "ONLINE-FEATURE-STORE-CALLER-ID"
-HEADER_CALLER_TOKEN = "ONLINE-FEATURE-STORE-AUTH-TOKEN"
+# gRPC authentication headers (from Go SDK).
+#
+# Lowercase, matching the Go SDK's own on-the-wire keys: grpc-go's
+# metadata.New() (used by the Go SDK, see go-sdk/pkg/onfs/client.go and
+# inferflow/handlers/external/featurestore/onfs.go) canonicalizes every key to
+# lowercase before sending, so those two implementations were always
+# consistent on the wire. Python's grpcio does not perform that
+# canonicalization for the caller — it validates the metadata key exactly as
+# given against gRPC's HTTP/2 header-name grammar (lowercase letters, digits,
+# '_', '.', '-' only: see grpc-core's validate_metadata.cc) and raises
+# `ValueError: metadata was invalid: ...` on any uppercase letter. Hyphens are
+# valid; case was the only problem (see issue #165).
+HEADER_CALLER_ID = "online-feature-store-caller-id"
+HEADER_CALLER_TOKEN = "online-feature-store-auth-token"
 
 try:
     import grpc
