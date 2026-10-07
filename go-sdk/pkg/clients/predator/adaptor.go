@@ -154,15 +154,20 @@ func (a *Adapter) flatten3DByteSlice(batches []BatchInfo, data [][][]byte, datat
 
 // Element size lookup table for better performance
 var elementSizeMap = map[string]int{
-	"FP32":  4,
-	"BF16":  2,
-	"FP16":  2,
-	"INT64": 8,
-	"INT32": 4,
-	"INT16": 2,
-	"INT8":  1,
-	"BOOL":  1,
-	"BYTES": -1, // Variable length, needs special handling
+	"FP64":   8,
+	"FP32":   4,
+	"BF16":   2,
+	"FP16":   2,
+	"INT64":  8,
+	"INT32":  4,
+	"INT16":  2,
+	"INT8":   1,
+	"UINT64": 8,
+	"UINT32": 4,
+	"UINT16": 2,
+	"UINT8":  1,
+	"BOOL":   1,
+	"BYTES":  -1, // Variable length, needs special handling
 }
 
 func getElementSize(datatype string) int {
@@ -243,7 +248,7 @@ func (a *Adapter) MapPredatorRequestToProto(predatorRequest *PredatorRequest, pr
 			log.Error().Err(err).
 				Str("input_name", input.Name).
 				Msg("Failed to process input data")
-			continue
+			return nil
 		}
 
 		a.flatten3DByteSlice(batches, inputData, input.DataType, predatorRequest.BatchSize, batchRequests, i, predatorRequest, inferOutputs, parameters)
@@ -314,7 +319,17 @@ func (a *Adapter) MapProtoToPredatorResponse(tritonResponse *triton.ModelInferRe
 
 		datatype := tritonOut.Datatype
 		numScores := len(reqOut.ModelScores)
+		if numScores == 0 {
+			continue
+		}
 		elementSize := getElementSize(datatype)
+		if datatype != datatypeBytes && elementSize <= 0 {
+			log.Error().
+				Str("output_name", reqOut.Name).
+				Str("datatype", datatype).
+				Msg("Unsupported triton output datatype")
+			return nil
+		}
 
 		// For BYTES, parse the length-prefixed format
 		if datatype == "BYTES" {
@@ -399,6 +414,13 @@ func (a *Adapter) MapProtoToPredatorResponse(tritonResponse *triton.ModelInferRe
 			scoreSize := elementSize * elements
 			scoreSizes[scoreIdx] = scoreSize
 			totalSizePerBatch += scoreSize
+		}
+
+		if totalSizePerBatch <= 0 {
+			log.Error().
+				Str("output_name", reqOut.Name).
+				Msg("Requested output dims do not describe a positive size")
+			return nil
 		}
 
 		// Calculate expected total size and actual available size
@@ -487,6 +509,16 @@ func (a *Adapter) MapProtoToPredatorResponse(tritonResponse *triton.ModelInferRe
 		ModelName:    tritonResponse.ModelName,
 		ModelVersion: tritonResponse.ModelVersion,
 		Outputs:      outputs,
+	}
+}
+
+// supportsStringData reports whether string input data can be converted for the given datatype.
+func supportsStringData(dataType string) bool {
+	switch dataType {
+	case "FP32", "INT32", "INT64", "BOOL", datatypeBytes:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -648,7 +680,7 @@ func (a *Adapter) InferAndSetInputShapes(predatorRequest *PredatorRequest, batch
 					batchReqs[batchIdx].Inputs[inputIdx].Shape[unknownIdx] = int64(totalByteSize / (knownSizes * inputByteSize))
 				}
 			} else {
-				if batchReqs[batchIdx].Inputs[inputIdx].Shape[1] == -1 {
+				if len(batchReqs[batchIdx].Inputs[inputIdx].Shape) > 1 && batchReqs[batchIdx].Inputs[inputIdx].Shape[1] == -1 {
 					if inputByteSize == 0 {
 						log.Error().
 							Str("input_name", predatorRequest.Inputs[inputIdx].Name).

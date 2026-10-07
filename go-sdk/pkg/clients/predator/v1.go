@@ -547,6 +547,85 @@ func validatePredatorRequest(req *PredatorRequest) error {
 		return err
 	}
 
+	if err := validateInputs(req.Inputs); err != nil {
+		log.Error().Err(err).Msg("Invalid inputs in predator request")
+		return err
+	}
+
+	return validateOutputs(req.Outputs)
+}
+
+// validateInputs checks that the inputs describe one consistent batch: they all use the kind of data
+// (raw bytes or strings) of the first input, have the same number of rows, every row has the same
+// number of features as the first row, and string data can be converted for its datatype.
+func validateInputs(inputs []Input) error {
+	stringMode := len(inputs[0].StringData) > 0
+
+	wantRows := -1
+	for _, input := range inputs {
+		rows := len(input.Data)
+		kind := "data"
+		if stringMode {
+			rows = len(input.StringData)
+			kind = "string_data"
+		}
+		if rows == 0 {
+			return fmt.Errorf("input %q has no %s; all inputs must carry the same kind of data as the first input", input.Name, kind)
+		}
+		if wantRows == -1 {
+			wantRows = rows
+		} else if rows != wantRows {
+			return fmt.Errorf("input %q has %d rows, expected %d rows like the first input", input.Name, rows, wantRows)
+		}
+
+		if stringMode {
+			if !supportsStringData(input.DataType) {
+				return fmt.Errorf("input %q: string_data is not supported for datatype %s", input.Name, input.DataType)
+			}
+			if err := validateFeatureCounts(input.Name, len(input.StringData), func(row int) int { return len(input.StringData[row]) }); err != nil {
+				return err
+			}
+			if input.DataType == datatypeBytes {
+				for row, features := range input.StringData {
+					for feature, values := range features {
+						if len(values) == 0 {
+							return fmt.Errorf("input %q: BYTES feature %d of row %d has no value", input.Name, feature, row)
+						}
+					}
+				}
+			}
+			continue
+		}
+		if err := validateFeatureCounts(input.Name, len(input.Data), func(row int) int { return len(input.Data[row]) }); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateFeatureCounts(name string, rows int, featuresInRow func(row int) int) error {
+	want := featuresInRow(0)
+	if want == 0 {
+		return fmt.Errorf("input %q: first row has no features", name)
+	}
+	for row := 1; row < rows; row++ {
+		if got := featuresInRow(row); got != want {
+			return fmt.Errorf("input %q: row %d has %d features, expected %d like the first row", name, row, got, want)
+		}
+	}
+	return nil
+}
+
+func validateOutputs(outputs []Output) error {
+	for _, output := range outputs {
+		for score, dims := range output.Dims {
+			for _, dim := range dims {
+				if dim <= 0 {
+					return fmt.Errorf("output %q: dims of score %d must be greater than 0, got: %v", output.Name, score, dims)
+				}
+			}
+		}
+	}
 	return nil
 }
 
