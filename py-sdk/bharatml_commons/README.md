@@ -96,7 +96,7 @@ class FeatureMetadataClient:
 ### Utility Functions
 
 - `clean_column_name(name: str) -> str`: Clean and normalize column names
-- `generate_renamed_column(old_name: str, new_name: str) -> str`: Generate renamed columns
+- `generate_renamed_column(table_name: str, source_type: str, fg_label: str, feature_col: str) -> str`: Build the unique offline column name `<table>___<fg_label>___<feature_col>` for a feature source (TABLE, or PARQUET_*/DELTA_* on GCS, S3 or ADLS paths); raises `ValueError` for unsupported source types or malformed table names/paths
 - `get_fgs_to_feature_mappings(data: Dict) -> Dict`: Process feature group mappings
 - `extract_entity_info(metadata: Dict) -> Tuple`: Extract entity information
 

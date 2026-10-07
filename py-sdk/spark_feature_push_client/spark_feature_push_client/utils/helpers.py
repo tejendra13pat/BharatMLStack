@@ -12,6 +12,30 @@ except ImportError:
     # Keep fallback for backward compatibility during transition
     _USE_SHARED_UTILS = False
 
+    _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*://")
+
+    def generate_renamed_column(table_name, source_type, fg_label, feature_col):
+        # Keep in sync with bharatml_commons.column_utils.generate_renamed_column
+        if source_type == "TABLE":
+            parts = table_name.strip().split(".")
+            if not all(part.strip() for part in parts):
+                raise ValueError(f"Invalid table name: {table_name!r}")
+            table_part = parts[1] if len(parts) > 1 else parts[0]
+            return table_part + "___" + fg_label + "___" + feature_col
+        if source_type in ["PARQUET_GCS",  # GCP
+                           "PARQUET_S3",  # AWS
+                           "PARQUET_ADLS",  # Azure
+                           "DELTA_GCS",  # GCP
+                           "DELTA_S3",  # AWS
+                           "DELTA_ADLS"  # Azure
+                           ]:
+            path = _URI_SCHEME_RE.sub("", table_name.strip(), count=1)
+            clean_table_name = clean_column_name(path.strip("/ ").split("/")[-1])
+            if not clean_table_name:
+                raise ValueError(f"Invalid source path: {table_name!r}")
+            return clean_table_name + "___" + fg_label + "___" + feature_col
+        raise ValueError(f"Unsupported source type: {source_type} for table: {table_name}")
+
 def clean_column_name(column_name):
     """
     Cleans a column name to be Delta Table compatible:
@@ -28,7 +52,7 @@ def clean_column_name(column_name):
     cleaned_name = re.sub(invalid_chars, "_", column_name)  # Replace invalid chars with "_"
 
     # Ensure it doesn't start with a number
-    if cleaned_name[0].isdigit():
+    if cleaned_name and cleaned_name[0].isdigit():
         cleaned_name = "_" + cleaned_name
 
     return cleaned_name.lower()  # Convert to lowercase (Delta standard)
@@ -96,31 +120,12 @@ def get_features_from_response_v2(json_response, fg_to_consider):
                 feature_label = features["feature-label"]
                 
                 # create rename feature col as there can be same column from multiple sources and same source can be used in multiple feature groups
-                # Use shared utility if available, otherwise fallback to original logic
-                if _USE_SHARED_UTILS:
-                    try:
-                        rename_feature_col = generate_renamed_column(table_name, source_type, fg_label, feature_label)
-                    except ValueError:
-                        print(f"source: {table_name} of type {source_type} not expected")
-                        sys.exit(1)
-                else:
-                    # Original logic
-                    if source_type == "TABLE":
-                        rename_feature_col = table_name.split(".")[1] + "___" + fg_label + "___" + feature_label
-                                            
-                    elif source_type in ["PARQUET_GCS", # GCP
-                                         "PARQUET_S3", # AWS
-                                         "PARQUET_ADLS", # Azure
-                                         "DELTA_GCS", # GCP
-                                         "DELTA_S3", # AWS
-                                         "DELTA_ADLS" # Azure
-                                         ]:
-                        rename_feature_col = clean_column_name(table_name.split("gs://")[1].strip("/ ").split("/")[-1]) + "___" + fg_label + "___" + feature_label
-                        
-                    else:
-                        print(f"source: {table_name} of type {source_type} not expected")
-                        sys.exit(1)
-                
+                try:
+                    rename_feature_col = generate_renamed_column(table_name, source_type, fg_label, feature_label)
+                except ValueError as e:
+                    print(f"source: {table_name} of type {source_type} not expected: {e}")
+                    sys.exit(1)
+
                 feature_default = features["default-value"]
 
                 features_list_temp.append((feature_col, rename_feature_col))
