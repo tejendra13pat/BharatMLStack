@@ -88,9 +88,8 @@ func (c *ClientV1) RetrieveFeatures(ctx context.Context, request *Query) (*Resul
 
 // RetrieveDecodedFeatures retrieves decoded features from online-feature-store service
 func (c *ClientV1) RetrieveDecodedFeatures(ctx context.Context, request *Query) (*DecodedResult, error) {
-	var backgroundContext context.Context
 	if ctx == nil {
-		backgroundContext = context.Background()
+		ctx = context.Background()
 	}
 
 	requests, err := c.adapter.ConvertToQueriesProto(request, c.batchSize)
@@ -98,7 +97,7 @@ func (c *ClientV1) RetrieveDecodedFeatures(ctx context.Context, request *Query) 
 		return nil, fmt.Errorf("failed to convert query: %w", err)
 	}
 
-	decodedResult := c.fetchDecodedResponseFromServer(backgroundContext, request, requests)
+	decodedResult := c.fetchDecodedResponseFromServer(ctx, request, requests)
 	if decodedResult == nil {
 		return nil, errors.New("error on retrieving decoded features from online-feature-store")
 	}
@@ -190,6 +189,9 @@ func (c *ClientV1) contactServer(ctx context.Context, request *retrieve.Query, r
 		}
 	}()
 
+	ctx, cancel := c.withDefaultTimeout(ctx)
+	defer cancel()
+
 	ctx = c.withAuthMetadata(ctx)
 	response, err := c.v1Client.client.RetrieveFeatures(ctx, request)
 
@@ -228,6 +230,17 @@ func (c *ClientV1) withAuthMetadata(ctx context.Context) context.Context {
 func (c *ClientV1) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	timeout := time.Duration(c.v1Client.deadline) * time.Millisecond
 	return context.WithTimeout(ctx, timeout)
+}
+
+// withDefaultTimeout applies the configured deadline only when the caller's context does not
+// already carry one, so a caller-supplied deadline is never extended. A non-positive configured
+// deadline means "unset" and leaves the context untouched. The returned cancel func is always
+// non-nil.
+func (c *ClientV1) withDefaultTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok || c.v1Client.deadline <= 0 {
+		return ctx, func() {}
+	}
+	return c.withTimeout(ctx)
 }
 
 // contactPersistServer makes a gRPC call to persist features
@@ -305,14 +318,8 @@ func (c *ClientV1) contactDecodedServer(
 		ctx = context.Background()
 	}
 
-	var ctxWithTimeout context.Context
-	var cancel context.CancelFunc
-	if _, ok := ctx.Deadline(); !ok {
-		ctxWithTimeout, cancel = c.withTimeout(ctx)
-		defer cancel()
-	} else {
-		ctxWithTimeout = ctx
-	}
+	ctxWithTimeout, cancel := c.withDefaultTimeout(ctx)
+	defer cancel()
 
 	//set metadata
 	finalCtx := c.withAuthMetadata(ctxWithTimeout)
