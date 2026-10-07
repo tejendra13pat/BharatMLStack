@@ -35,6 +35,18 @@ class TestGenerateRenamedColumnForTables:
             == "tbl___fg___feat"
         )
 
+    def test_catalog_qualified_table_uses_table_part(self):
+        # Previously the schema part ("db") was used, so every table of a schema got the same prefix.
+        assert (
+            generate_renamed_column("cat.db.tbl", "TABLE", "fg", "feat")
+            == "tbl___fg___feat"
+        )
+
+    def test_tables_of_one_schema_get_distinct_columns(self):
+        first = generate_renamed_column("cat.db.t1", "TABLE", "fg", "feat")
+        second = generate_renamed_column("cat.db.t2", "TABLE", "fg", "feat")
+        assert first != second
+
     def test_unqualified_table(self):
         assert (
             generate_renamed_column("tbl", "TABLE", "fg", "feat") == "tbl___fg___feat"

@@ -78,7 +78,7 @@ def test_path_sources_are_renamed_for_every_cloud(helpers, storage_provider, pat
 
 @pytest.mark.parametrize(
     "table_name, expected_prefix",
-    [("db.events", "events"), ("events", "events")],
+    [("db.events", "events"), ("events", "events"), ("cat.db.events", "events")],
 )
 def test_table_sources(helpers, table_name, expected_prefix):
     _, _, _, ofs_map, *_ = helpers.get_features_from_response_v2(

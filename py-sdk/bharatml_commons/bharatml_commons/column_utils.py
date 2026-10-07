@@ -51,7 +51,7 @@ def generate_renamed_column(table_name: str, source_type: str, fg_label: str, fe
 
     Args:
         table_name: Name of the source table/path. For TABLE sources a (possibly
-            schema-qualified) table name, for PARQUET_*/DELTA_* sources a storage
+            schema- or catalog-qualified) table name, of which the last part is used, for PARQUET_*/DELTA_* sources a storage
             path such as gs://bucket/dir, s3://bucket/dir or
             abfss://container@account.dfs.core.windows.net/dir
         source_type: Type of data source (TABLE, PARQUET_*, DELTA_*)
@@ -68,7 +68,7 @@ def generate_renamed_column(table_name: str, source_type: str, fg_label: str, fe
         parts = table_name.strip().split(".")
         if not all(part.strip() for part in parts):
             raise ValueError(f"Invalid table name: {table_name!r}")
-        table_part = parts[1] if len(parts) > 1 else parts[0]
+        table_part = parts[-1]
         rename_feature_col = table_part + "___" + fg_label + "___" + feature_col
     elif source_type in _PATH_SOURCE_TYPES:
         # Use the last part of the path, whatever the storage scheme, and clean it

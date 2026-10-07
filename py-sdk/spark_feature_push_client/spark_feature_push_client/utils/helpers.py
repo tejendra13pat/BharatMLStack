@@ -20,7 +20,7 @@ except ImportError:
             parts = table_name.strip().split(".")
             if not all(part.strip() for part in parts):
                 raise ValueError(f"Invalid table name: {table_name!r}")
-            table_part = parts[1] if len(parts) > 1 else parts[0]
+            table_part = parts[-1]
             return table_part + "___" + fg_label + "___" + feature_col
         if source_type in ["PARQUET_GCS",  # GCP
                            "PARQUET_S3",  # AWS
